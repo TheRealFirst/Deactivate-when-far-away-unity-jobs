@@ -1,0 +1,154 @@
+//This script is writtem by First, if you've got any question dm me on Discord (First#6706)
+//For this to work you need to have a few packages installed (Job System, Burst, Collections, Mathematics)
+//install them if they dont show up in the package manager using com.unity.(name of the package)
+//The manager of the system
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Unity.Mathematics;
+using Unity.Jobs;
+using Unity.Burst;
+using Unity.Collections;
+using UnityEngine.Jobs;
+
+
+namespace First.Optimization{
+    public class DeactivatewhenFarAway : MonoBehaviour
+    {
+        private static DeactivatewhenFarAway _Instance; // you only want it ones in the scene
+        public static DeactivatewhenFarAway Instance {get{return _Instance;}}
+
+        DeactivatableItem[] _deactivatableItems; //array of the deactivatableItems
+        Transform[] _deactivatableItemsTransforms; //array of there Transforms
+        float _start2State = 0; //I use Start2 (one frame after the normal Start), because i dont want to overfill the start methods of my project
+        int _deactivatableItemsNumber = 0; //the number of deactivatableItems in the scene
+
+        [Header("Settings")]
+        [SerializeField] float _deactivateDistance = 500f; //the default distance at which the Items get Deactivated
+        [SerializeField] Transform _playerTransform = null; //the Transform of your player
+        [SerializeField] bool _debugMode = false; //shows the number of deactivatableItems in the scene using OnGUI
+
+        [Header("Performance Stuff")]
+        NativeArray<bool> _gameObjectActivness;  
+        NativeArray<bool> _hasCostumDistance;
+        NativeArray<float> costumDistance;
+        JobHandle jobHandle;
+        FarAwayCalculationJob farAwayCalculationJob;
+        TransformAccessArray transformAccessArray;
+
+        private void Awake(){ //Creating the instance
+            if(_Instance != null && _Instance != this){
+                Destroy(this.gameObject);
+            }else{
+                _Instance = this;
+            }
+        }
+
+        void Start2(){ //I use Start2 (one frame after the normal Start), because i dont want to overfill the start methods of my project
+            _deactivatableItems = (DeactivatableItem[]) GameObject.FindObjectsOfType(typeof(DeactivatableItem));
+            _gameObjectActivness = new NativeArray<bool>(_deactivatableItems.Length, Allocator.Persistent);
+            _hasCostumDistance = new NativeArray<bool>(_deactivatableItems.Length, Allocator.Persistent); 
+            costumDistance = new NativeArray<float>(_deactivatableItems.Length, Allocator.Persistent);
+        
+            
+            Transform[] itemActivatorTransform = new Transform[_deactivatableItems.Length];
+            for(int i = 0; i < _deactivatableItems.Length; i++){
+                itemActivatorTransform[i] = _deactivatableItems[i].gameObject.transform;
+            }for(int i = 0; i < _deactivatableItems.Length; i++){
+                _hasCostumDistance[i] = _deactivatableItems[i]._hasCostumDistance;
+                costumDistance[i] = _deactivatableItems[i]._costumDistance;
+            }
+
+
+            _deactivatableItemsTransforms = itemActivatorTransform;
+
+            _deactivatableItemsNumber = _deactivatableItems.Length + 1;
+
+            farAwayCalculationJob = new FarAwayCalculationJob{ //decleares all the variables for the Job
+                gameObjectActivness = _gameObjectActivness,
+                _calculationOrigin = _playerTransform.position,
+                _hasCostumDistance = _hasCostumDistance,
+                costumDistance = costumDistance,
+                _deactivateDistance = _deactivateDistance
+            };
+        }
+        
+        void Update(){
+            if(_start2State == 0){ //start2
+                _start2State = 1;
+            }else if(_start2State == 1){
+                _start2State = 2;
+                Start2();
+            }
+
+
+            UpdateItems();
+        }
+
+        
+        void LateUpdate(){
+            LateUpdateItems();
+        }
+        
+
+        private void UpdateItems(){
+            if(_deactivatableItems == null) //because Start2 this is empty in the first frame
+                return;
+
+            transformAccessArray = new TransformAccessArray(_deactivatableItemsTransforms, 10); 
+            farAwayCalculationJob._calculationOrigin = _playerTransform.position; //needs to be updated every time
+            farAwayCalculationJob._deactivateDistance = _deactivateDistance; //non native parts of a job need to get updated every time you call it
+
+            jobHandle = farAwayCalculationJob.Schedule(transformAccessArray);
+        }
+
+        private void LateUpdateItems(){
+            if(_deactivatableItems == null) //because Start2 this is empty in the first frame
+                return;
+            
+            jobHandle.Complete(); //complete in in LateUpdate so it has time to execute
+            transformAccessArray.Dispose(); 
+
+            for(int i = 0; i < _deactivatableItems.Length; i++){
+
+                if(_deactivatableItems[i].gameObject.activeInHierarchy != farAwayCalculationJob.gameObjectActivness[i])
+                {
+                    _deactivatableItems[i].gameObject.SetActive(farAwayCalculationJob.gameObjectActivness[i]); //Activates / Deactivates the Items
+                }
+            }
+        }
+
+        void OnDestroy(){
+            _gameObjectActivness.Dispose();
+            _hasCostumDistance.Dispose();
+            costumDistance.Dispose();
+        }
+
+
+
+        void OnGUI(){ //shows the number of deactivatableItems in the scene using OnGUI
+            if(!_debugMode) {return;}
+
+            GUI.Box(new Rect(0, 0, 200, 20), "Deactivatable Items: "+(_deactivatableItemsNumber.ToString()));
+        }
+    }
+
+    [BurstCompile]
+    public struct FarAwayCalculationJob : IJobParallelForTransform{ 
+        public NativeArray<bool> gameObjectActivness;
+        public float3 _calculationOrigin;
+        public NativeArray<bool> _hasCostumDistance;
+        public NativeArray<float> costumDistance;
+        public float _deactivateDistance;
+
+        public void Execute(int index, TransformAccess transform){
+            if(math.distance(transform.position, _calculationOrigin) >= (_hasCostumDistance[index] ? costumDistance[index] : _deactivateDistance)){ //the calculation
+                    gameObjectActivness[index] = false;
+                }
+            else{
+                gameObjectActivness[index] = true;
+            }
+        }
+    }
+}
