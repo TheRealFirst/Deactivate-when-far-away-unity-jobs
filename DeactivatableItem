@@ -1,0 +1,35 @@
+//This script is writtem by First, if you've got any question dm me on Discord (First#6706)
+//put this on the gameobjects you want to deactivate / activate
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
+namespace First.Optimization{
+    public class DeactivatableItem : MonoBehaviour
+    {
+        [HideInInspector]public bool _hasCostumDistance = false; //sometimes you want another Distance than the default one
+        [HideInInspector]public float _costumDistance; 
+    }
+
+    #if UNITY_EDITOR
+    [CustomEditor(typeof(DeactivatableItem))]
+    public class ItemActivator_Editor : Editor{ //You dont need this, but I like it and it is fun
+        public override void OnInspectorGUI() //The variable _costumDistance only gets displayed in the editor when the bool _hasCostumDistance is true
+        {
+            DrawDefaultInspector();
+
+            DeactivatableItem activator = (DeactivatableItem) target;
+
+            activator._hasCostumDistance = EditorGUILayout.Toggle("Has Costum Distance", activator._hasCostumDistance);
+            if(activator._hasCostumDistance){
+                activator._costumDistance = EditorGUILayout.FloatField("Costum Distance", activator._costumDistance);
+            }
+        }
+    }
+    #endif
+}
